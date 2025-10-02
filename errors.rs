@@ -5,6 +5,7 @@ pub enum TokenBalanceError {
     InsufficientBalance,
     NotEnoughAllowance,
     NotAuthorized,
+    SenderIsSelf,
 }
 
 pub(crate) type AppResult<E> = Result<E, TokenBalanceError>;

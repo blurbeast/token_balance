@@ -11,9 +11,11 @@ mod token_balance {
         TokenBalanceView,
         TokenBalanceMut
     };
-    use crate::events::OwnershipTransferred;
+    use crate::events::{
+        OwnershipTransferred, Transfer, Approval, Mint, Burn
+    };
     use crate::errors::{
-        AppResult, TokenBalanceError
+        AppResult, TokenBalanceError,
     };
 
 
@@ -73,69 +75,123 @@ mod token_balance {
     impl TokenBalanceMut for TokenBalance {
         #[ink(message)]
         fn transfer(&mut self, to: AccountId, value: u128) -> AppResult<bool> {
-            unimplemented!()
+            let caller = self.env().caller();
+            self._check_to_not_self(caller, to)?;
+            self._transfer(caller, to, value)?;
+            self.env().emit_event(Transfer {
+                from: caller,
+                to,
+                value,
+            });
+            Ok(true)
         }
 
         #[ink(message)]
         fn approve(&mut self, spender: AccountId, value: u128) -> AppResult<bool> {
-            unimplemented!()
+            let caller = self.env().caller();
+            self._check_to_not_self(caller, spender)?;
+            self._approve(caller, spender, value)?;
+            self.env().emit_event(Approval {
+                owner: caller,
+                spender,
+                value,
+            });
+            Ok(true)
         }
 
         #[ink(message)]
         fn transfer_from(&mut self, from: AccountId, to: AccountId, value: u128) -> AppResult<bool> {
-            unimplemented!()
+            let caller = self.env().caller();
+            let allowance = self.allowance(from, caller);
+            self._check_allowance(from, caller, value)?;
+            self._transfer(from, to, value)?;
+            self._approve(from, caller, allowance.saturating_sub(value))?;
+            self.env().emit_event(Transfer {
+                from,
+                to,
+                value,
+            });
+            Ok(true)
         }
 
         #[ink(message)]
         fn burn(&mut self, value: u128) -> AppResult<bool> {
-            unimplemented!()
+            let caller = self.env().caller();
+            self._transfer(caller, AccountId::from([0; 32]), value)?;
+            self._increase_total_supply(value, false);
+            self.env().emit_event(Burn {
+                from: caller,
+                value,
+            });
+            Ok(true)
         }
 
         #[ink(message)]
         fn mint(&mut self, to: AccountId, value: u128) -> AppResult<bool> {
-            unimplemented!()
+            let caller = self.env().caller();
+            self._only_owner(caller)?;
+            self._mint(to, value);
+            
+            self.env().emit_event(Mint {
+                to,
+                value,
+            });
+            Ok(true)
         }
     }
-    
+
     impl TokenBalance {
-        fn _transfer(&mut self, from: AccountId, to: AccountId, value: u128) -> AppResult<bool> {
-            // get the balance_of_from
+        fn _mint(&mut self, to: AccountId, value: u128) {
+            let balance = self.balance_of(to);
+            self.balances.insert(to, &(balance + value));
+            self._increase_total_supply(value, true);
+        }
+
+        fn _increase_total_supply(&mut self, value: u128, reduce: bool) {
+            match reduce {
+                false => self.total_supply = self.total_supply.saturating_sub(value),
+                _ => self.total_supply = self.total_supply.saturating_add(value),
+            }
+        }
+
+        fn _transfer(&mut self, from: AccountId, to: AccountId, value: u128) -> AppResult<()> {
             let balance_from = self.balance_of(from);
-            // check if the balance is sufficient
             if balance_from < value {
                 return Err(TokenBalanceError::InsufficientBalance);
             }
-            // update the balance of the sender
-            self.balances.insert(from, &balance_from.saturating_sub(value));
-            // update the balance of the receiver
+            // subtract
+            self.balances.insert(from, &(balance_from.saturating_sub(value)));
+            // add
             let balance_to = self.balance_of(to);
-            self.balances.insert(to, &balance_to.saturating_add(value));
-            Ok(true)
-        }
-        
-        fn _approve(&mut self, owner: AccountId, spender: AccountId, value: u128) -> AppResult<bool> {
-            unimplemented!()
-        }
-        
-        fn _contract_owner(&self, account_id: AccountId) -> AppResult<bool> {
-            unimplemented!()
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-
-        use super::*;
-
-        #[ink::test]
-        fn default_works() {
-            let _ = TokenBalance::default();
+            self.balances.insert(to, &(balance_to.saturating_add(value)));
+            Ok(())
         }
 
-        #[ink::test]
-        fn it_works() {
-            let mut token_balance = TokenBalance::new();
-            assert_eq!(token_balance.get(), false);
+        fn _approve(&mut self, owner: AccountId, spender: AccountId, value: u128) -> AppResult<()> {
+            self.allowances.insert((owner, spender), &value);
+            Ok(())
+        }
+
+        fn _only_owner(&self, caller: AccountId) -> AppResult<()> {
+            if  caller != self.owner {
+                return Err(TokenBalanceError::NotAuthorized);
+            }
+            Ok(())
+        }
+
+        fn _check_allowance(&self, from: AccountId, caller: AccountId, value: u128) -> AppResult<()> {
+            let allowance = self.allowance(from, caller);
+            if allowance < value {
+                return Err(TokenBalanceError::NotEnoughAllowance);
+            }
+            Ok(())
+        }
+
+        fn _check_to_not_self(&self, from: AccountId, to: AccountId) -> AppResult<()> {
+            if from == to {
+                return Err(TokenBalanceError::SenderIsSelf);
+            }
+            Ok(())
         }
     }
 }
