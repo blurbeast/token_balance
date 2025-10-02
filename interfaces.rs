@@ -31,4 +31,10 @@ pub trait TokenBalanceMut {
 
     #[ink(message)]
     fn mint(&mut self, to: AccountId, value: u128) -> AppResult<bool>;
+    
+    #[ink(message)]
+    fn pause(&mut self) -> AppResult<bool>;
+
+    #[ink(message)]
+    fn unpause(&mut self) -> AppResult<bool>;
 }

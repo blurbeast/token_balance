@@ -39,3 +39,9 @@ pub(crate) struct Burn {
   pub from: AccountId,
   pub value: u128,
 }
+
+#[ink::event]
+pub(crate) struct Pause {
+  #[ink(topic)]
+  pub paused: bool,
+}

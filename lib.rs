@@ -12,7 +12,12 @@ mod token_balance {
         TokenBalanceMut
     };
     use crate::events::{
-        OwnershipTransferred, Transfer, Approval, Mint, Burn
+        OwnershipTransferred, 
+        Transfer, 
+        Approval, 
+        Mint, 
+        Burn, 
+        Pause
     };
     use crate::errors::{
         AppResult, TokenBalanceError,
@@ -75,7 +80,7 @@ mod token_balance {
     impl TokenBalanceMut for TokenBalance {
         #[ink(message)]
         fn transfer(&mut self, to: AccountId, value: u128) -> AppResult<bool> {
-            let caller = self.env().caller();
+            let caller: AccountId = self.env().caller();
             self._check_to_not_self(caller, to)?;
             self._transfer(caller, to, value)?;
             self.env().emit_event(Transfer {
@@ -88,7 +93,7 @@ mod token_balance {
 
         #[ink(message)]
         fn approve(&mut self, spender: AccountId, value: u128) -> AppResult<bool> {
-            let caller = self.env().caller();
+            let caller: AccountId = self.env().caller();
             self._check_to_not_self(caller, spender)?;
             self._approve(caller, spender, value)?;
             self.env().emit_event(Approval {
@@ -101,8 +106,8 @@ mod token_balance {
 
         #[ink(message)]
         fn transfer_from(&mut self, from: AccountId, to: AccountId, value: u128) -> AppResult<bool> {
-            let caller = self.env().caller();
-            let allowance = self.allowance(from, caller);
+            let caller: AccountId = self.env().caller();
+            let allowance: u128 = self.allowance(from, caller);
             self._check_allowance(from, caller, value)?;
             self._transfer(from, to, value)?;
             self._approve(from, caller, allowance.saturating_sub(value))?;
@@ -116,7 +121,7 @@ mod token_balance {
 
         #[ink(message)]
         fn burn(&mut self, value: u128) -> AppResult<bool> {
-            let caller = self.env().caller();
+            let caller: AccountId = self.env().caller();
             self._transfer(caller, AccountId::from([0; 32]), value)?;
             self._increase_total_supply(value, false);
             self.env().emit_event(Burn {
@@ -128,7 +133,8 @@ mod token_balance {
 
         #[ink(message)]
         fn mint(&mut self, to: AccountId, value: u128) -> AppResult<bool> {
-            let caller = self.env().caller();
+            self._assert_not_pause(self.is_paused)?;
+            let caller: AccountId = self.env().caller();
             self._only_owner(caller)?;
             self._mint(to, value);
             
@@ -138,11 +144,37 @@ mod token_balance {
             });
             Ok(true)
         }
+        
+        #[ink(message)]
+        fn pause(&mut self) -> AppResult<bool> {
+            self._assert_not_pause(self.is_paused)?;
+            let caller: AccountId = self.env().caller();
+            self._only_owner(caller)?;
+            self._pause_contract(true)?;
+            
+            self.env().emit_event(Pause {
+                paused: true,
+            });
+            
+            Ok(true)
+        }
+        
+        #[ink(message)]
+        fn unpause(&mut self) -> AppResult<bool> {
+            let caller: AccountId = self.env().caller();
+            self._only_owner(caller)?;
+            self._pause_contract(false)?;
+            
+            self.env().emit_event(Pause {
+                paused: false,
+            });
+            Ok(true)
+        }
     }
 
     impl TokenBalance {
         fn _mint(&mut self, to: AccountId, value: u128) {
-            let balance = self.balance_of(to);
+            let balance: u128 = self.balance_of(to);
             self.balances.insert(to, &balance.saturating_add(value));
             self._increase_total_supply(value, true);
         }
@@ -155,19 +187,21 @@ mod token_balance {
         }
 
         fn _transfer(&mut self, from: AccountId, to: AccountId, value: u128) -> AppResult<()> {
-            let balance_from = self.balance_of(from);
+            self._assert_not_pause(self.is_paused)?;
+            let balance_from: u128 = self.balance_of(from);
             if balance_from < value {
                 return Err(TokenBalanceError::InsufficientBalance);
             }
             // subtract
             self.balances.insert(from, &(balance_from.saturating_sub(value)));
             // add
-            let balance_to = self.balance_of(to);
+            let balance_to: u128 = self.balance_of(to);
             self.balances.insert(to, &(balance_to.saturating_add(value)));
             Ok(())
         }
 
         fn _approve(&mut self, owner: AccountId, spender: AccountId, value: u128) -> AppResult<()> {
+            self._assert_not_pause(self.is_paused)?;
             self.allowances.insert((owner, spender), &value);
             Ok(())
         }
@@ -180,7 +214,7 @@ mod token_balance {
         }
 
         fn _check_allowance(&self, from: AccountId, caller: AccountId, value: u128) -> AppResult<()> {
-            let allowance = self.allowance(from, caller);
+            let allowance: u128 = self.allowance(from, caller);
             if allowance < value {
                 return Err(TokenBalanceError::NotEnoughAllowance);
             }
@@ -190,6 +224,21 @@ mod token_balance {
         fn _check_to_not_self(&self, from: AccountId, to: AccountId) -> AppResult<()> {
             if from == to {
                 return Err(TokenBalanceError::SenderIsSelf);
+            }
+            Ok(())
+        }
+        
+        fn _assert_not_pause(&self, paused: bool) -> AppResult<()> {
+            if paused {
+                return Err(TokenBalanceError::Paused);
+            }
+            Ok(())
+        }
+        
+        fn _pause_contract(&mut self, pause: bool) -> AppResult<()> {
+            match pause {
+                true => self.is_paused = true,
+                false => self.is_paused = false,
             }
             Ok(())
         }
