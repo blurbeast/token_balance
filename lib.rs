@@ -58,7 +58,7 @@ mod token_balance {
     impl TokenBalanceView for TokenBalance {
         #[ink(message)]
         fn balance_of(&self, owner: AccountId) -> u128 {
-            self.balances.get(&owner).unwrap_or(0)
+            self.balances.get(owner).unwrap_or(0)
         }
 
         #[ink(message)]
@@ -68,7 +68,7 @@ mod token_balance {
 
         #[ink(message)]
         fn allowance(&self, owner: AccountId, spender: AccountId) -> u128 {
-            self.allowances.get(&(owner, spender)).unwrap_or(0)
+            self.allowances.get((owner, spender)).unwrap_or(0)
         }
     }
 
@@ -143,7 +143,7 @@ mod token_balance {
     impl TokenBalance {
         fn _mint(&mut self, to: AccountId, value: u128) {
             let balance = self.balance_of(to);
-            self.balances.insert(to, &(balance + value));
+            self.balances.insert(to, &balance.saturating_add(value));
             self._increase_total_supply(value, true);
         }
 
